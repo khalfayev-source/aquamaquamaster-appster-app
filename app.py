@@ -49,23 +49,21 @@ def save_data(store_name, district, store_type, owner, phone, has_seller, volume
 st.set_page_config(page_title="Aquamaster Cənub", page_icon="💧")
 st.title("💧 Aquamaster")
 
-# --- AVTOMATİK GEOLOKASİYA ---
+# --- GEOLOKASİYA ---
+st.subheader("🌍 Məkan Təyini")
 loc = get_geolocation()
 
 lat_val = ""
 long_val = ""
 
-# Xətanın qarşısını almaq üçün burada yoxlama edirik
-if loc is not None:
-    if 'coords' in loc:
-        lat_val = str(loc['coords'].get('latitude', ""))
-        long_val = str(loc['coords'].get('longitude', ""))
-        if lat_val and long_val:
-            st.success(f"📍 Məkan təyin edildi: {lat_val}, {long_val}")
+if loc:
+    lat_val = loc['coords']['latitude']
+    long_val = loc['coords']['longitude']
+    st.success(f"📍 Koordinatlar alındı: {lat_val}, {long_val}")
 else:
-    st.info("🌐 Məkan təyin edilir... Zəhmət olmasa brauzerdə icazə verin.")
+    st.info("🌐 Məkan axtarılır... Zəhmət olmasa brauzerdə icazə verin.")
 
-# --- ƏSAS FORMA ---
+# --- FORMA ---
 with st.form("main_form", clear_on_submit=True):
     col1, col2 = st.columns(2)
     with col1:
@@ -88,9 +86,10 @@ with st.form("main_form", clear_on_submit=True):
         hecm_listi = [500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 5000, 6000, 7000, 8000, 9000, 10000, 15000, 20000]
         hecm = st.selectbox("📦 Həcm (AZN/Mal)", hecm_listi)
 
-    st.write("🌍 **Koordinatlar**")
-    lat = st.text_input("Latitude", value=lat_val)
-    long = st.text_input("Longitude", value=long_val)
+    st.write("📍 **Koordinatları Təsdiqləyin**")
+    # Burada 'value' yerinə 'str(lat_val)' yazırıq ki, Python onu mətn kimi qəbul etsin
+    final_lat = st.text_input("Latitude", value=str(lat_val))
+    final_long = st.text_input("Longitude", value=str(long_val))
 
     uploaded_photo = st.camera_input("📸 Şəkil çək")
     qeyd = st.text_area("📝 Xüsusi Qeyd")
@@ -100,11 +99,12 @@ with st.form("main_form", clear_on_submit=True):
         if not magaza_adi:
             st.error("⚠️ Mağaza Adı mütləqdir!")
         else:
-            save_data(magaza_adi, rayon, magaza_tipi, sahibkar, telefon, satici_var, hecm, lat, long, uploaded_photo, qeyd)
-            st.success("✅ Məlumatlar yadda saxlanıldı!")
+            save_data(magaza_adi, rayon, magaza_tipi, sahibkar, telefon, satici_var, hecm, final_lat, final_long, uploaded_photo, qeyd)
+            st.success("✅ Məlumatlar müvəqqəti yaddaşa yazıldı!")
             st.balloons()
 
-# Admin üçün bazaya baxış
-with st.expander("📊 Mövcud Bazaya Bax"):
+# Arxiv
+st.markdown("---")
+if st.checkbox("📊 Bazaya Bax (Cari Sessiya)"):
     if os.path.exists(EXCEL_FILE):
         st.dataframe(pd.read_excel(EXCEL_FILE))
