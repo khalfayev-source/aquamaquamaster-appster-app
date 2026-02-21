@@ -3,7 +3,7 @@ import pandas as pd
 import os
 from datetime import datetime
 from PIL import Image
-import streamlit.components.v1 as components
+from streamlit_js_eval import streamlit_js_eval
 
 # --- TƏNZİMLƏMƏLƏR ---
 EXCEL_FILE = "aquamaster_data.xlsx"
@@ -12,61 +12,29 @@ IMAGE_FOLDER = "magaza_sekilleri"
 if not os.path.exists(IMAGE_FOLDER):
     os.makedirs(IMAGE_FOLDER)
 
-# --- JAVASCRIPT GEOLOKASİYA ---
-def get_location_js():
-    js_code = """
-    <div style="background-color: #f9f9f9; padding: 15px; border-radius: 10px; border: 1px dashed #4285F4; text-align: center;">
-        <button id="geoBtn" onclick="getLocation()" style="padding: 12px 24px; background-color: #4285F4; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 16px;">
-            📍 MƏKANI TƏYİN ET
-        </button>
-        <p id="status" style="margin-top: 10px; font-size: 14px; font-family: sans-serif; color: #555;">Məkan hələ təyin edilməyib</p>
-    </div>
-
-    <script>
-    function getLocation() {
-      const status = document.getElementById('status');
-      if (navigator.geolocation) {
-        status.innerText = "Koordinatlar alınır...";
-        navigator.geolocation.getCurrentPosition(
-          (position) => {
-            const lat = position.coords.latitude;
-            const lng = position.coords.longitude;
-            status.innerText = "Tapıldı: " + lat.toFixed(6) + ", " + lng.toFixed(6);
-            
-            // Streamlit-ə JSON formatında göndəririk
-            window.parent.postMessage({
-              type: 'streamlit:set_component_value',
-              value: {lat: lat, lng: lng}
-            }, '*');
-          },
-          (error) => {
-            status.innerText = "Xəta: " + error.message;
-          },
-          { enableHighAccuracy: true }
-        );
-      } else { 
-        status.innerText = "Brauzer dəstəkləmir.";
-      }
-    }
-    </script>
-    """
-    return components.html(js_code, height=130)
-
 # --- APP BAŞLIĞI ---
 st.set_page_config(page_title="Aquamaster Cənub", page_icon="💧")
 st.title("💧 Aquamaster")
 
-# 1. Məkan Düyməsi
-loc_data = get_location_js()
+# --- GEOLOKASİYA (SESSION STATE İLƏ) ---
+st.subheader("🌍 Məkan Təyini")
 
-lat_val = ""
-lng_val = ""
+# JavaScript vasitəsilə koordinatı götürürük
+loc = streamlit_js_eval(
+    js_expressions="done => { navigator.geolocation.getCurrentPosition( (pos) => { done(pos.coords.latitude + ',' + pos.coords.longitude) } ) }", 
+    key='get_loc'
+)
 
-if loc_data and isinstance(loc_data, dict):
-    lat_val = loc_data.get('lat', "")
-    lng_val = loc_data.get('lng', "")
+# Sessiya yaddaşını yoxlayırıq
+if loc:
+    st.session_state['lat_long'] = str(loc)
+    st.success(f"📍 Koordinatlar alındı: {st.session_state['lat_long']}")
+else:
+    if 'lat_long' not in st.session_state:
+        st.session_state['lat_long'] = ""
+    st.info("🌐 Məkan təyin edilir... Brauzerdə icazə verin.")
 
-# 2. Giriş Xanaları (Formdan kənarda olduqda daha yaxşı işləyir)
+# --- ƏSAS FORMA ---
 st.markdown("---")
 col1, col2 = st.columns(2)
 with col1:
@@ -82,13 +50,20 @@ with col2:
 hecm_listi = [500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 5000, 10000, 20000]
 hecm = st.selectbox("📦 Həcm (AZN/Mal)", hecm_listi)
 
-# Koordinatlar - JS-dən gələn dəyərlər bura birbaşa yazılacaq
+# Koordinat Xanaları - Session State-dən gələn məlumatı bura yazırıq
 st.write("📍 **Koordinatlar**")
 col_lat, col_lng = st.columns(2)
+
+# Koordinatı parçalayırıq (vergüllə ayrılıb)
+lat_input = ""
+lng_input = ""
+if st.session_state['lat_long']:
+    lat_input, lng_input = st.session_state['lat_long'].split(",")
+
 with col_lat:
-    final_lat = st.text_input("Enlik (Lat)", value=str(lat_val))
+    final_lat = st.text_input("Enlik (Lat)", value=lat_input)
 with col_lng:
-    final_lng = st.text_input("Uzunluq (Lng)", value=str(lng_val))
+    final_lng = st.text_input("Uzunluq (Lng)", value=lng_input)
 
 uploaded_photo = st.camera_input("📸 Mağaza Şəkli")
 qeyd = st.text_area("📝 Qeydlər")
@@ -97,6 +72,8 @@ qeyd = st.text_area("📝 Qeydlər")
 if st.button("💾 YADDA SAXLA", use_container_width=True):
     if not magaza_adi:
         st.error("⚠️ Mağaza Adı mütləqdir!")
+    elif not final_lat or not final_lng:
+        st.error("⚠️ Koordinatlar hələ alınmayıb! Zəhmət olmasa bir az gözləyin və ya səhifəni yeniləyin.")
     else:
         photo_path = "Şəkil Yoxdur"
         if uploaded_photo is not None:
@@ -123,13 +100,11 @@ if st.button("💾 YADDA SAXLA", use_container_width=True):
             df_final = df_new
             
         df_final.to_excel(EXCEL_FILE, index=False)
-        st.success("✅ Məlumatlar yadda saxlanıldı!")
+        st.success("✅ Məlumatlar uğurla yadda saxlanıldı!")
         st.balloons()
 
-# 3. Arxiv Bölməsi
+# Arxiv
 st.markdown("---")
 if st.checkbox("📊 Arxivə bax"):
     if os.path.exists(EXCEL_FILE):
         st.dataframe(pd.read_excel(EXCEL_FILE))
-        with open(EXCEL_FILE, "rb") as f:
-            st.download_button("📥 Excel-i Yüklə", f, file_name="aquamaster_baza.xlsx")
