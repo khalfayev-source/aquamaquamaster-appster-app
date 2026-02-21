@@ -50,18 +50,20 @@ st.set_page_config(page_title="Aquamaster Cənub", page_icon="💧")
 st.title("💧 Aquamaster")
 
 # --- AVTOMATİK GEOLOKASİYA ---
-# Səhifə yüklənən kimi arxa planda yeri təyin etməyə çalışacaq
 loc = get_geolocation()
 
 lat_val = ""
 long_val = ""
 
-if loc:
-    lat_val = str(loc['coords']['latitude'])
-    long_val = str(loc['coords']['longitude'])
-    st.success(f"📍 Məkan təyin edildi: {lat_val}, {long_val}")
+# Xətanın qarşısını almaq üçün burada yoxlama edirik
+if loc is not None:
+    if 'coords' in loc:
+        lat_val = str(loc['coords'].get('latitude', ""))
+        long_val = str(loc['coords'].get('longitude', ""))
+        if lat_val and long_val:
+            st.success(f"📍 Məkan təyin edildi: {lat_val}, {long_val}")
 else:
-    st.warning("⚠️ Məkan avtomatik təyin edilə bilmədi. Zəhmət olmasa icazə verin və ya əllə daxil edin.")
+    st.info("🌐 Məkan təyin edilir... Zəhmət olmasa brauzerdə icazə verin.")
 
 # --- ƏSAS FORMA ---
 with st.form("main_form", clear_on_submit=True):
@@ -101,3 +103,8 @@ with st.form("main_form", clear_on_submit=True):
             save_data(magaza_adi, rayon, magaza_tipi, sahibkar, telefon, satici_var, hecm, lat, long, uploaded_photo, qeyd)
             st.success("✅ Məlumatlar yadda saxlanıldı!")
             st.balloons()
+
+# Admin üçün bazaya baxış
+with st.expander("📊 Mövcud Bazaya Bax"):
+    if os.path.exists(EXCEL_FILE):
+        st.dataframe(pd.read_excel(EXCEL_FILE))
