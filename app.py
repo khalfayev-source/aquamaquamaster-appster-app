@@ -49,21 +49,27 @@ def save_data(store_name, district, store_type, owner, phone, has_seller, volume
 st.set_page_config(page_title="Aquamaster Cənub", page_icon="💧")
 st.title("💧 Aquamaster")
 
-# --- GEOLOKASİYA ---
+# --- GEOLOKASİYA (XƏTA VERMƏYƏN VERSİYA) ---
 st.subheader("🌍 Məkan Təyini")
+
+# Məlumatı alırıq
 loc = get_geolocation()
 
 lat_val = ""
 long_val = ""
 
+# BURADA DƏYİŞİKLİK ETDİK:
 if loc:
-    lat_val = loc['coords']['latitude']
-    long_val = loc['coords']['longitude']
-    st.success(f"📍 Koordinatlar alındı: {lat_val}, {long_val}")
+    # 'coords' açarının olub olmadığını yoxlayırıq
+    coords = loc.get('coords')
+    if coords:
+        lat_val = coords.get('latitude', "")
+        long_val = coords.get('longitude', "")
+        st.success(f"📍 Koordinatlar alındı: {lat_val}, {long_val}")
 else:
-    st.info("🌐 Məkan axtarılır... Zəhmət olmasa brauzerdə icazə verin.")
+    st.info("🌐 Məkan axtarılır... Zəhmət olmasa brauzerdə (yuxarıda) icazə verin.")
 
-# --- FORMA ---
+# --- ƏSAS FORMA ---
 with st.form("main_form", clear_on_submit=True):
     col1, col2 = st.columns(2)
     with col1:
@@ -86,8 +92,8 @@ with st.form("main_form", clear_on_submit=True):
         hecm_listi = [500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 5000, 6000, 7000, 8000, 9000, 10000, 15000, 20000]
         hecm = st.selectbox("📦 Həcm (AZN/Mal)", hecm_listi)
 
-    st.write("📍 **Koordinatları Təsdiqləyin**")
-    # Burada 'value' yerinə 'str(lat_val)' yazırıq ki, Python onu mətn kimi qəbul etsin
+    st.write("📍 **Koordinatlar**")
+    # Əgər avtomatik tapılmasa, istifadəçi bura özü yaza bilsin deyə boş xana saxlayırıq
     final_lat = st.text_input("Latitude", value=str(lat_val))
     final_long = st.text_input("Longitude", value=str(long_val))
 
@@ -102,9 +108,3 @@ with st.form("main_form", clear_on_submit=True):
             save_data(magaza_adi, rayon, magaza_tipi, sahibkar, telefon, satici_var, hecm, final_lat, final_long, uploaded_photo, qeyd)
             st.success("✅ Məlumatlar müvəqqəti yaddaşa yazıldı!")
             st.balloons()
-
-# Arxiv
-st.markdown("---")
-if st.checkbox("📊 Bazaya Bax (Cari Sessiya)"):
-    if os.path.exists(EXCEL_FILE):
-        st.dataframe(pd.read_excel(EXCEL_FILE))
