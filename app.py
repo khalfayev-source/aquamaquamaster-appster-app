@@ -3,7 +3,7 @@ import pandas as pd
 import os
 from datetime import datetime
 from PIL import Image
-from streamlit_js_eval import streamlit_js_eval
+from streamlit_js_eval import get_geolocation
 
 # --- TƏNZİMLƏMƏLƏR ---
 EXCEL_FILE = "aquamaster_data.xlsx"
@@ -49,30 +49,19 @@ def save_data(store_name, district, store_type, owner, phone, has_seller, volume
 st.set_page_config(page_title="Aquamaster Cənub", page_icon="💧")
 st.title("💧 Aquamaster")
 
-# --- GEOLOKASİYA HİSSƏSİ (FORMDAN KƏNARDA DAHA YAXŞI İŞLƏYİR) ---
-st.subheader("🌍 Məkan Təyini")
-col_btn, col_res = st.columns([1, 2])
-
-# Bu funksiya birbaşa JS düyməsi yaradır
-loc = streamlit_js_eval(
-    js_expressions="navigator.geolocation.getCurrentPosition(success => { window.parent.postMessage({type: 'streamlit:set_component_value', value: success}, '*') })",
-    target_id='get_location'
-)
-
-# Alternativ olaraq birbaşa dəyəri götürək
-loc = streamlit_js_eval(js_expressions='navigator.geolocation.getCurrentPosition(function(pos) { return pos; })', want_output=True, key='foo')
-
-with col_btn:
-    if st.button("📍 Koordinatları Yenilə"):
-        st.info("Zəhmət olmasa brauzerdə 'Allow/İcazə Ver' düyməsini sıxın.")
+# --- AVTOMATİK GEOLOKASİYA ---
+# Səhifə yüklənən kimi arxa planda yeri təyin etməyə çalışacaq
+loc = get_geolocation()
 
 lat_val = ""
 long_val = ""
 
-if loc and 'coords' in loc:
-    lat_val = loc['coords']['latitude']
-    long_val = loc['coords']['longitude']
-    st.success(f"Koordinatlar: {lat_val}, {long_val}")
+if loc:
+    lat_val = str(loc['coords']['latitude'])
+    long_val = str(loc['coords']['longitude'])
+    st.success(f"📍 Məkan təyin edildi: {lat_val}, {long_val}")
+else:
+    st.warning("⚠️ Məkan avtomatik təyin edilə bilmədi. Zəhmət olmasa icazə verin və ya əllə daxil edin.")
 
 # --- ƏSAS FORMA ---
 with st.form("main_form", clear_on_submit=True):
@@ -97,9 +86,9 @@ with st.form("main_form", clear_on_submit=True):
         hecm_listi = [500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 5000, 6000, 7000, 8000, 9000, 10000, 15000, 20000]
         hecm = st.selectbox("📦 Həcm (AZN/Mal)", hecm_listi)
 
-    st.write("📍 **Koordinatları Təsdiqləyin**")
-    lat = st.text_input("Latitude", value=str(lat_val))
-    long = st.text_input("Longitude", value=str(long_val))
+    st.write("🌍 **Koordinatlar**")
+    lat = st.text_input("Latitude", value=lat_val)
+    long = st.text_input("Longitude", value=long_val)
 
     uploaded_photo = st.camera_input("📸 Şəkil çək")
     qeyd = st.text_area("📝 Xüsusi Qeyd")
