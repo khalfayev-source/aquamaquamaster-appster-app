@@ -17,8 +17,13 @@ st.set_page_config(page_title="Aquamaster Cənub", page_icon="💧")
 st.title("💧 Aquamaster")
 
 # --- SESSION STATE INIT ---
-st.session_state.setdefault("lat", "")
-st.session_state.setdefault("lng", "")
+# Streamlit widget-lar "key" ilə idarə olunur.
+# Koordinatları birbaşa lat_input / lng_input state-lərinə yazırıq ki:
+# 1) input-larda görünsün
+# 2) Excel-ə düşsün
+st.session_state.setdefault("lat_input", "")
+st.session_state.setdefault("lng_input", "")
+st.session_state.setdefault("geo_pending", False)
 
 # --- GEOLOKASİYA BLOKU ---
 st.markdown("### 📍 Məkan")
@@ -34,19 +39,20 @@ if geo_click or st.session_state.get("geo_pending", False):
     st.session_state["geo_pending"] = True
     loc = get_geolocation()
 
-# loc oxu və session-a yaz
+# loc oxu və WIDGET STATE-ə yaz (ƏN VACİB HİSSƏ)
 if isinstance(loc, dict):
     coords = loc.get("coords") or {}
-    lat = coords.get("latitude")
-    lng = coords.get("longitude")
+    lat = coords.get("latitude", loc.get("latitude"))
+    lng = coords.get("longitude", loc.get("longitude"))
+
     if lat is not None and lng is not None:
-        st.session_state.lat = f"{float(lat):.6f}"
-        st.session_state.lng = f"{float(lng):.6f}"
+        st.session_state["lat_input"] = f"{float(lat):.6f}"
+        st.session_state["lng_input"] = f"{float(lng):.6f}"
         st.session_state["geo_pending"] = False
 
 # status göstəricisi
-if st.session_state.lat and st.session_state.lng:
-    st.success(f"Tapıldı: {st.session_state.lat}, {st.session_state.lng}")
+if st.session_state.get("lat_input") and st.session_state.get("lng_input"):
+    st.success(f"Tapıldı: {st.session_state['lat_input']}, {st.session_state['lng_input']}")
 elif st.session_state.get("geo_pending", False):
     st.info("Lokasiya icazəsi gözlənilir... (Brauzerdə Allow seç)")
 else:
@@ -62,7 +68,10 @@ with col1:
     magaza_tipi = st.selectbox("🏗️ Mağaza Tipi", ["Banyo", "Banyo və Xırdavat", "Xırdavat"])
 
 with col2:
-    rayon = st.selectbox("📍 Rayon", ["Lənkəran", "Masallı", "Astara", "Lerik", "Yardımlı", "Cəlilabad", "Biləsuvar", "Salyan", "Digər"])
+    rayon = st.selectbox(
+        "📍 Rayon",
+        ["Lənkəran", "Masallı", "Astara", "Lerik", "Yardımlı", "Cəlilabad", "Biləsuvar", "Salyan", "Digər"],
+    )
     telefon = st.text_input("📞 Əlaqə Nömrəsi")
     satici_var = st.radio("Satıcısı varmı?", ["Var", "Yox"], horizontal=True)
 
@@ -72,9 +81,10 @@ hecm = st.selectbox("📦 Həcm (AZN/Mal)", hecm_listi)
 st.write("📍 **Koordinatlar**")
 col_lat, col_lng = st.columns(2)
 with col_lat:
-    final_lat = st.text_input("Enlik (Lat)", value=st.session_state.lat, key="lat_input")
+    # value= vermirik: widget-in real dəyəri key üzərindən idarə olunur
+    final_lat = st.text_input("Enlik (Lat)", key="lat_input")
 with col_lng:
-    final_lng = st.text_input("Uzunluq (Lng)", value=st.session_state.lng, key="lng_input")
+    final_lng = st.text_input("Uzunluq (Lng)", key="lng_input")
 
 uploaded_photo = st.camera_input("📸 Mağaza Şəkli")
 qeyd = st.text_area("📝 Qeydlər")
@@ -94,6 +104,10 @@ if st.button("💾 YADDA SAXLA", use_container_width=True):
             img.save(save_path)
             photo_path = save_path
 
+        # Excel-ə yazılacaq dəyərlər (widget state-dən)
+        lat_to_save = st.session_state.get("lat_input", "")
+        lng_to_save = st.session_state.get("lng_input", "")
+
         new_row = {
             "Tarix": [datetime.now().strftime("%Y-%m-%d %H:%M:%S")],
             "Mağaza": [magaza_adi],
@@ -103,10 +117,10 @@ if st.button("💾 YADDA SAXLA", use_container_width=True):
             "Telefon": [telefon],
             "Satıcı": [satici_var],
             "Həcm": [hecm],
-            "Latitude": [final_lat],
-            "Longitude": [final_lng],
+            "Latitude": [lat_to_save],
+            "Longitude": [lng_to_save],
             "Şəkil": [photo_path],
-            "Qeyd": [qeyd]
+            "Qeyd": [qeyd],
         }
         df_new = pd.DataFrame(new_row)
 
