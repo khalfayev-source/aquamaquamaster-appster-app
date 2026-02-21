@@ -3,209 +3,140 @@ import pandas as pd
 import os
 from datetime import datetime
 from PIL import Image
-from streamlit_js_eval import get_geolocation
+import streamlit.components.v1 as components
+
+# Google Kitabxanaları
+import gspread
+from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseUpload
+import io
 
 # --- TƏNZİMLƏMƏLƏR ---
-EXCEL_FILE = "aquamaster_data.xlsx"
-IMAGE_FOLDER = "magaza_sekilleri"
+SERVICE_ACCOUNT_FILE = "key.json" # GitHub-a yüklədiyin faylın adı
+SPREADSHEET_ID = "1PO8vl6lVCio9lHgFrZFQ9Sgz6XRbVOWYyh8FMZzaM9E"
+DRIVE_FOLDER_ID = "1SgXAWg6xxyq4L_UmFiaQeo8yE5bCZVXu"
 
-# Excel-də istədiyimiz SƏLİQƏLİ sütun sxemi (ardıcıllıq)
-CANON_COLS = [
-    "Tarix",
-    "Mağaza",
-    "Rayon",
-    "Tip",
-    "Sahibkar",
-    "Telefon",
-    "Satıcı Var?",
-    "Həcm",
-    "Latitude",
-    "Longitude",
-    "Şəkil Yolu",
-    "Qeyd",
-]
+# --- GOOGLE BAĞLANTISI FUNKSİYASI ---
+def get_g_services():
+    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=scopes)
+    gc = gspread.authorize(creds)
+    drive_service = build('drive', 'v3', credentials=creds)
+    return gc, drive_service
 
-# Köhnə fayllardan gələn sinonim sütun adları (birləşdirmək üçün)
-SYNONYMS = {
-    "Mağaza": ["Mağaza", "Mağaza Adı", "Magaza", "Magaza_adi"],
-    "Tip": ["Tip", "Mağaza Tipi", "Magaza Tipi"],
-    "Satıcı Var?": ["Satıcı Var?", "Satıcı", "Satici", "Satici varmi?"],
-    "Şəkil Yolu": ["Şəkil Yolu", "Şəkil", "Sekil", "Image", "Photo"],
-    "Latitude": ["Latitude", "Enlik (Lat)", "Lat", "lat"],
-    "Longitude": ["Longitude", "Uzunluq (Lng)", "Lng", "lon", "lng"],
-    "Tarix": ["Tarix", "Timestamp", "Date", "Tarix/Saat"],
-    "Rayon": ["Rayon", "Region"],
-    "Sahibkar": ["Sahibkar", "Sahibkarın Adı", "Owner"],
-    "Telefon": ["Telefon", "Əlaqə Nömrəsi", "Phone"],
-    "Həcm": ["Həcm", "Hecm", "Həcm (AZN/Mal)"],
-    "Qeyd": ["Qeyd", "Qeydlər", "Notes"],
-}
+# --- DRIVE-A ŞƏKİL YÜKLƏMƏ FUNKSİYASI ---
+def upload_image_to_drive(drive_service, photo_bytes, filename):
+    file_metadata = {'name': filename, 'parents': [DRIVE_FOLDER_ID]}
+    media = MediaIoBaseUpload(io.BytesIO(photo_bytes), mimetype='image/jpeg')
+    file = drive_service.files().create(body=file_metadata, media_body=media, fields='id, webViewLink').execute()
+    # Şəkli hamı görə bilsin deyə icazə veririk
+    drive_service.permissions().create(fileId=file.get('id'), body={'type': 'anyone', 'role': 'viewer'}).execute()
+    return file.get('webViewLink')
 
-if not os.path.exists(IMAGE_FOLDER):
-    os.makedirs(IMAGE_FOLDER)
+# --- JAVASCRIPT KOORDİNAT DÜYMƏSİ ---
+def get_location_js():
+    js_code = """
+    <div style="background-color: #f0f2f6; padding: 15px; border-radius: 10px; border: 2px solid #4285F4; text-align: center;">
+        <button id="geoBtn" onclick="getLocation()" style="width: 100%; padding: 12px; background-color: #4285F4; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">
+            📍 MƏKANI TƏYİN ET
+        </button>
+        <p id="status" style="margin-top: 10px; font-size: 14px; font-family: sans-serif; color: #333;">Məkan hələ təyin edilməyib</p>
+    </div>
+    <script>
+    function getLocation() {
+      const status = document.getElementById('status');
+      if (navigator.geolocation) {
+        status.innerText = "Axtarılır...";
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            const coords = pos.coords.latitude + "|" + pos.coords.longitude;
+            status.innerText = "✅ Tapıldı və Köçürüldü!";
+            window.parent.postMessage({type: 'streamlit:set_component_value', value: coords}, '*');
+          },
+          (err) => { status.innerText = "Xəta: " + err.message; },
+          { enableHighAccuracy: true }
+        );
+      }
+    }
+    </script>
+    """
+    return components.html(js_code, height=130)
 
+# --- APP BAŞLIĞI ---
 st.set_page_config(page_title="Aquamaster Cənub", page_icon="💧")
 st.title("💧 Aquamaster")
 
-# --- SESSION STATE INIT ---
-st.session_state.setdefault("lat_input", "")
-st.session_state.setdefault("lng_input", "")
-st.session_state.setdefault("geo_pending", False)
+# 1. Məkan Düyməsi
+coords_raw = get_location_js()
 
-# ---------- Helpers ----------
-def first_nonempty(series_list):
-    """Return first non-empty value across multiple series for each row."""
-    if not series_list:
-        return pd.Series(dtype="object")
-    out = series_list[0].copy()
-    for s in series_list[1:]:
-        out = out.mask(out.isna() | (out.astype(str).str.strip() == ""), s)
-    return out
-
-def normalize_existing_excel(path: str) -> pd.DataFrame:
-    """Read existing Excel and normalize to CANON_COLS (merge synonyms, drop extras, order cols)."""
-    try:
-        df = pd.read_excel(path)
-    except Exception:
-        return pd.DataFrame(columns=CANON_COLS)
-
-    # Build canonical columns by merging synonyms
-    canon = {}
-    for canon_name, candidates in SYNONYMS.items():
-        present = [c for c in candidates if c in df.columns]
-        if present:
-            canon[canon_name] = first_nonempty([df[c] for c in present])
-        else:
-            canon[canon_name] = ""
-
-    out = pd.DataFrame(canon)
-
-    # Ensure all canonical columns exist and order them
-    for c in CANON_COLS:
-        if c not in out.columns:
-            out[c] = ""
-
-    out = out[CANON_COLS]
-    return out
-
-def append_and_save(new_row_df: pd.DataFrame, path: str):
-    """Normalize old file, append new row, enforce schema & order, then save."""
-    if os.path.exists(path):
-        df_old = normalize_existing_excel(path)
-        df_final = pd.concat([df_old, new_row_df], ignore_index=True)
-    else:
-        df_final = new_row_df.copy()
-
-    # Enforce exact columns & order, drop anything else
-    for c in CANON_COLS:
-        if c not in df_final.columns:
-            df_final[c] = ""
-    df_final = df_final[CANON_COLS]
-
-    df_final.to_excel(path, index=False)
-
-# ---------- GEO ----------
-st.markdown("### 📍 Məkan")
-geo_click = st.button("📍 MƏKANI TƏYİN ET", use_container_width=True)
-
-loc = None
-if geo_click or st.session_state.get("geo_pending", False):
-    st.session_state["geo_pending"] = True
-    loc = get_geolocation()
-
-if isinstance(loc, dict):
-    coords = loc.get("coords") or {}
-    lat = coords.get("latitude", loc.get("latitude"))
-    lng = coords.get("longitude", loc.get("longitude"))
-
-    if lat is not None and lng is not None:
-        st.session_state["lat_input"] = f"{float(lat):.6f}"
-        st.session_state["lng_input"] = f"{float(lng):.6f}"
-        st.session_state["geo_pending"] = False
-
-if st.session_state.get("lat_input") and st.session_state.get("lng_input"):
-    st.success(f"Tapıldı: {st.session_state['lat_input']}, {st.session_state['lng_input']}")
-elif st.session_state.get("geo_pending", False):
-    st.info("Lokasiya icazəsi gözlənilir... (Brauzerdə Allow seç)")
-else:
-    st.caption("Məkan hələ təyin edilməyib")
-
-# ---------- FORM ----------
+# 2. Giriş Xanaları
 st.markdown("---")
+magaza_adi = st.text_input("🏪 Mağaza Adı *")
+rayon = st.selectbox("📍 Rayon", ["Lənkəran", "Masallı", "Astara", "Lerik", "Yardımlı", "Cəlilabad", "Biləsuvar", "Salyan", "Digər"])
+magaza_tipi = st.selectbox("🏗️ Mağaza Tipi", ["Banyo", "Banyo və Xırdavat", "Xırdavat"])
+
 col1, col2 = st.columns(2)
-
 with col1:
-    magaza_adi = st.text_input("🏪 Mağaza Adı *")
     sahibkar = st.text_input("👤 Sahibkarın Adı")
-    magaza_tipi = st.selectbox("🏗️ Mağaza Tipi", ["Banyo", "Banyo və Xırdavat", "Xırdavat"])
-
-with col2:
-    rayon = st.selectbox(
-        "📍 Rayon",
-        ["Lənkəran", "Masallı", "Astara", "Lerik", "Yardımlı", "Cəlilabad", "Biləsuvar", "Salyan", "Digər"],
-    )
-    telefon = st.text_input("📞 Əlaqə Nömrəsi")
     satici_var = st.radio("Satıcısı varmı?", ["Var", "Yox"], horizontal=True)
+with col2:
+    telefon = st.text_input("📞 Əlaqə Nömrəsi")
+    hecm = st.selectbox("📦 Həcm (AZN/Mal)", [500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 5000, 10000, 20000])
 
-hecm_listi = [500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 5000, 10000, 20000]
-hecm = st.selectbox("📦 Həcm (AZN/Mal)", hecm_listi)
+# Koordinatları parçalayırıq
+st.session_state.setdefault('lat', "")
+st.session_state.setdefault('lng', "")
+if coords_raw and "|" in coords_raw:
+    st.session_state.lat, st.session_state.lng = coords_raw.split("|")
 
-st.write("📍 **Koordinatlar**")
+st.write("📍 **Koordinatlar (Avtomatik dolur)**")
 col_lat, col_lng = st.columns(2)
-with col_lat:
-    st.text_input("Enlik (Lat)", key="lat_input")
-with col_lng:
-    st.text_input("Uzunluq (Lng)", key="lng_input")
+final_lat = col_lat.text_input("Enlik (Lat)", value=st.session_state.lat)
+final_lng = col_lng.text_input("Uzunluq (Lng)", value=st.session_state.lng)
 
 uploaded_photo = st.camera_input("📸 Mağaza Şəkli")
 qeyd = st.text_area("📝 Qeydlər")
 
-# ---------- SAVE ----------
+# --- YADDA SAXLA (GOOGLE SHEETS-Ə) ---
 if st.button("💾 YADDA SAXLA", use_container_width=True):
-    if not magaza_adi.strip():
-        st.error("⚠️ Mağaza Adı mütləqdir!")
+    if not magaza_adi or not final_lat:
+        st.error("⚠️ Mağaza Adı və Koordinatlar mütləqdir!")
     else:
-        # şəkil saxla
-        photo_path = ""
-        if uploaded_photo is not None:
-            img = Image.open(uploaded_photo)
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            safe_name = "".join([c if c.isalnum() or c in "_-" else "_" for c in magaza_adi.strip()])
-            fn = f"{ts}_{safe_name}.jpg"
-            save_path = os.path.join(IMAGE_FOLDER, fn)
-            img.save(save_path)
-            photo_path = save_path
+        try:
+            with st.spinner("Məlumatlar Google Sheets-ə göndərilir..."):
+                gc, drive_service = get_g_services()
+                
+                # 1. Şəkli Drive-a yüklə
+                photo_link = "Şəkil Yoxdur"
+                if uploaded_photo:
+                    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    fn = f"{ts}_{magaza_adi}.jpg"
+                    photo_link = upload_image_to_drive(drive_service, uploaded_photo.getvalue(), fn)
+                
+                # 2. Sətiri hazırla
+                new_row = [
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    magaza_adi, rayon, magaza_tipi, sahibkar, telefon, 
+                    satici_var, hecm, final_lat, final_lng, photo_link, qeyd
+                ]
+                
+                # 3. Sheets-ə yaz
+                sh = gc.open_by_key(SPREADSHEET_ID)
+                sh.sheet1.append_row(new_row)
+                
+                st.success("✅ Məlumatlar Google Sheets-ə uğurla yazıldı!")
+                st.balloons()
+        except Exception as e:
+            st.error(f"Xəta: {e}")
 
-        lat_to_save = st.session_state.get("lat_input", "")
-        lng_to_save = st.session_state.get("lng_input", "")
-
-        # yalnız CANON_COLS ilə yeni sətir yaradırıq (artıq map link yoxdur)
-        new_row = {
-            "Tarix": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "Mağaza": magaza_adi.strip(),
-            "Rayon": rayon,
-            "Tip": magaza_tipi,
-            "Sahibkar": sahibkar.strip(),
-            "Telefon": telefon.strip(),
-            "Satıcı Var?": satici_var,
-            "Həcm": hecm,
-            "Latitude": lat_to_save,
-            "Longitude": lng_to_save,
-            "Şəkil Yolu": photo_path or "Şəkil Yoxdur",
-            "Qeyd": qeyd.strip(),
-        }
-        df_new = pd.DataFrame([new_row], columns=CANON_COLS)
-
-        append_and_save(df_new, EXCEL_FILE)
-        st.success("✅ Məlumatlar səliqəli formatda yadda saxlanıldı!")
-
-# ---------- ARXİV ----------
+# --- ARXİV ---
 st.markdown("---")
-if st.checkbox("📊 Arxivə bax"):
-    if os.path.exists(EXCEL_FILE):
-        df_show = normalize_existing_excel(EXCEL_FILE)
-        st.dataframe(df_show, use_container_width=True)
-        with open(EXCEL_FILE, "rb") as f:
-            st.download_button("📥 Excel-i Yüklə", f, file_name="aquamaster_baza.xlsx")
-    else:
-        st.info("Hələ heç bir məlumat yoxdur.")
+if st.checkbox("📊 Canlı Bazaya Bax"):
+    try:
+        gc, _ = get_g_services()
+        sh = gc.open_by_key(SPREADSHEET_ID)
+        df_view = pd.DataFrame(sh.sheet1.get_all_records())
+        st.dataframe(df_view, use_container_width=True)
+    except:
+        st.info("Baza hələ boşdur və ya qoşulma xətası var.")
