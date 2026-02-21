@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "rock-sorter-373117",
+  "private_key_id": "306dc518f26e11661d7f5cf9bfb4d11aee6b0869",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDZsZxpaS8xx/QO\ncmMDqq8ZsETHpVCV8NMq6epfwgjeO9kfdDGF/KMFf61nEt0pfn+oqVRdTqbLAe6e\nc8Lv1pqLJaZVwRofhN+wkKBsaJx0+GiWt5YrbjOD+vFMGz5dHkrFU7KnCuoTqi/j\nVVFww/5dRNadzADLgzqQic7KdjXsgowQWCsYU3z5oNmtygHKATukQOxpMpzVlBe4\n0Hn47g22P8fQYJ7MmNGVszrKesSTR+WX+xIkc0QSSx/TpHf/MFG2ornqL2a+orBr\nhbDFv8jgvq+jzGtdA4m7py6ZVrMEAko0kiTRo+552cfFj+MOVa52mZbikjMPCiYY\nPeIDzA5nAgMBAAECggEAAo5uli5OB5LTIt6xzirRWfpGVH6nrs5GxiVvdloCkKZT\nRMzjtMpKsv3U1qkG2XEXpRT+XW1XBOGsIHnR7pvhvlCRRRO6os232SYmb1KrKhR6\nTFeYXXPMPXiGhnl4OgLpDd6PWOoGTBGewYsQi12oPWzzHqQOpLuQ+Usk/bh1pnLv\nqd6pA78kjWjbzOlGoMJoSKz5QWRKbAZU8wcz2gUtdFFD7NCGmYKVEBGbN+tZyRPw\nElvkor1gRygeWqHyIiKEJb3QKeemu6KVsw1Vuacl0fIjLMvKs9jG4PyO1iM9Hbeb\nMpXkdnECkAn2zqLtRC/kEp+Vvabu2Ffl4jw9dQPvgQKBgQDuou6pWbwKAReEhkl3\nZR+otUvYxsT0IW9mACGzB4fLF/RDFQaoiEoPYDXtzbUkXNTypf3nvc7VhsaZPu5f\nfaP5BCr+F+hF2E2MuoQwYwiKMPdwBvgEyLKxCVilBbKFik862cLvFhGHZyJUJ9WK\nveiJ5oUWzhg4SXhl8otzXRJ4TwKBgQDpiJS409QF8nqPYFu0S4WvLiPNZHEuL+ah\n1aNw2RtkLvQnKrPWMDjhQrSfgcWXSdWPdCEouhCItn73j9JQoP/g3GS8+snX9Mvp\n7syNfuZBhCZo8tyNBQ3xqB2hsdHuWts0aeGfRKl8i59aZt087ukQkP4GlmGZFUn1\nMTtQ9hhqaQKBgQDnRD3ZH57Nbzt0cpPWQslIvdJwlkmfcpu8FVqTXzPpziAptsHK\nKLLlbc811Eq9n728HsQPh3Jgmwnyz/tBzchQdwqXT2IJ9lNJlCSxo/hNvKDAD/Di\n6gHK8ozW+MuHAYBBP3LcM93vBDNPrX8Uw3EN27qVXEw6mHE3E7Szq7pPnwKBgEaF\n31udZIbTPd20XJ0qvVk0ls08ys0G3B/9ExlOBu6PG14EkEBbWaH08fTFTLUuL9bd\nW/IflkSiz97UyM9ef0cZZzaGiZO0siuX2J/WNZSNYsgIpz/Sye4zNZeRynKvb0j5\nvI/LPV+GDn5PV/pBr5I4Ju44VYrUGfx4fJArcR4ZAoGAKlunqbT5R+xZjZLtp5/o\nHtHn+kuEJ5XHAsYUjf9hsmjMh9CSVp5QOnEo8hKZt6nQjO32KGzstJVgyPO4EVAp\nTBRHgrezHDHS4Xs70A3NWTDHP9b/JEDQ7gcHqci3x4RZs3rMvdcuH4BUCOhQ6snh\nEwGhcTWldK78Vup6jUJtL/8=\n-----END PRIVATE KEY-----\n",
+  "client_email": "aquamaster-bot@rock-sorter-373117.iam.gserviceaccount.com",
+  "client_id": "104705440112883993481",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/aquamaster-bot%40rock-sorter-373117.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
