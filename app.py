@@ -3,7 +3,7 @@ import pandas as pd
 import os
 from datetime import datetime
 from PIL import Image
-import streamlit.components.v1 as components
+from streamlit_js_eval import streamlit_js_eval
 
 # --- TƏNZİMLƏMƏLƏR ---
 EXCEL_FILE = "aquamaster_data.xlsx"
@@ -12,75 +12,22 @@ IMAGE_FOLDER = "magaza_sekilleri"
 if not os.path.exists(IMAGE_FOLDER):
     os.makedirs(IMAGE_FOLDER)
 
-# --- GOOGLE MAPS-DƏKİ KİMİ JS GEOLOKASİYA ---
-def get_location_js():
-    js_code = """
-    <script>
-    function getLocation() {
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(showPosition, showError);
-      } else { 
-        window.parent.postMessage({type: 'streamlit:set_component_value', value: 'Geolokasiya dəstəklənmir'}, '*');
-      }
-    }
-
-    function showPosition(position) {
-      const coords = position.coords.latitude + "," + position.coords.longitude;
-      window.parent.postMessage({type: 'streamlit:set_component_value', value: coords}, '*');
-    }
-
-    function showError(error) {
-      window.parent.postMessage({type: 'streamlit:set_component_value', value: 'Xəta: ' + error.message}, '*');
-    }
-    
-    // Səhifə yüklənən kimi işə düşsün
-    getLocation();
-    </script>
-    <button onclick="getLocation()" style="padding: 10px 20px; background-color: #008CBA; color: white; border: none; border-radius: 5px; cursor: pointer;">📍 Koordinatı Yenilə</button>
-    """
-    return components.html(js_code, height=60)
-
-# --- DATA YADDA SAXLA ---
-def save_data(store_name, district, store_type, owner, phone, has_seller, volume, coords, photo_file, note):
-    photo_path = "Şəkil Yoxdur"
-    if photo_file is not None:
-        img = Image.open(photo_file)
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        clean_name = store_name.replace(" ", "_").replace("/", "-")
-        filename = f"{timestamp}_{clean_name}.jpg"
-        save_path = os.path.join(IMAGE_FOLDER, filename)
-        img.save(save_path)
-        photo_path = save_path
-
-    new_data = {
-        "Tarix": [datetime.now().strftime("%Y-%m-%d %H:%M:%S")],
-        "Mağaza Adı": [store_name],
-        "Rayon": [district],
-        "Mağaza Tipi": [store_type],
-        "Sahibkar": [owner],
-        "Telefon": [phone],
-        "Satıcı Var?": [has_seller],
-        "Həcm": [volume],
-        "Koordinatlar": [coords],
-        "Şəkil Yolu": [photo_path],
-        "Qeyd": [note]
-    }
-    df_new = pd.DataFrame(new_data)
-    if os.path.exists(EXCEL_FILE):
-        df_old = pd.read_excel(EXCEL_FILE)
-        df_final = pd.concat([df_old, df_new], ignore_index=True)
-    else:
-        df_final = df_new
-    df_final.to_excel(EXCEL_FILE, index=False)
-    return True
-
 # --- APP DİZAYN ---
 st.set_page_config(page_title="Aquamaster Cənub", page_icon="💧")
 st.title("💧 Aquamaster")
 
+# --- GEOLOKASİYA (ƏN STABİL ÜSUL) ---
 st.subheader("🌍 Məkan Təyini")
-# JS vasitəsilə məkənı alırıq
-coords_from_js = get_location_js()
+
+# Brauzerdən koordinatları soruşuruq
+loc = streamlit_js_eval(js_expressions="done => { navigator.geolocation.getCurrentPosition( (pos) => { done(pos.coords.latitude + ',' + pos.coords.longitude) } ) }", key='get_loc')
+
+final_coords = ""
+if loc:
+    final_coords = str(loc)
+    st.success(f"📍 Koordinatlar alındı: {final_coords}")
+else:
+    st.info("🌐 Məkan təyin edilir... Zəhmət olmasa brauzerdə icazə verin. Əgər düymə görünmürsə, səhifəni yeniləyin.")
 
 # --- ƏSAS FORMA ---
 with st.form("main_form", clear_on_submit=True):
@@ -105,18 +52,48 @@ with st.form("main_form", clear_on_submit=True):
         hecm_listi = [500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 5000, 6000, 7000, 8000, 9000, 10000, 15000, 20000]
         hecm = st.selectbox("📦 Həcm (AZN/Mal)", hecm_listi)
 
-    st.write("📍 **Koordinatlar**")
-    # Brauzerdən gələn datanı bura yazırıq
-    final_coords = st.text_input("Enlik və Uzunluq (Avtomatik dolur)", value=coords_from_js if coords_from_js else "")
+    st.write("📍 **Təsdiqlənmiş Koordinatlar**")
+    # Brauzerdən gələn koordinatı bura yazırıq
+    coords_input = st.text_input("Enlik və Uzunluq", value=final_coords)
 
     uploaded_photo = st.camera_input("📸 Şəkil çək")
     qeyd = st.text_area("📝 Xüsusi Qeyd")
 
     submitted = st.form_submit_button("💾 YADDA SAXLA")
+    
     if submitted:
         if not magaza_adi:
             st.error("⚠️ Mağaza Adı mütləqdir!")
         else:
-            save_data(magaza_adi, rayon, magaza_tipi, sahibkar, telefon, satici_var, hecm, final_coords, uploaded_photo, qeyd)
+            # Data yadda saxla funksiyası (sadəlik üçün birbaşa burda yazıram)
+            photo_path = "Şəkil Yoxdur"
+            if uploaded_photo is not None:
+                img = Image.open(uploaded_photo)
+                ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+                fn = f"{ts}_{magaza_adi.replace(' ', '_')}.jpg"
+                save_path = os.path.join(IMAGE_FOLDER, fn)
+                img.save(save_path)
+                photo_path = save_path
+
+            new_row = {
+                "Tarix": [datetime.now().strftime("%Y-%m-%d %H:%M:%S")],
+                "Mağaza": [magaza_adi],
+                "Rayon": [rayon],
+                "Tip": [magaza_tipi],
+                "Sahibkar": [sahibkar],
+                "Telefon": [telefon],
+                "Satıcı": [satici_var],
+                "Həcm": [hecm],
+                "Koordinat": [coords_input],
+                "Şəkil": [photo_path],
+                "Qeyd": [qeyd]
+            }
+            df_new = pd.DataFrame(new_row)
+            if os.path.exists(EXCEL_FILE):
+                df_old = pd.read_excel(EXCEL_FILE)
+                pd.concat([df_old, df_new], ignore_index=True).to_excel(EXCEL_FILE, index=False)
+            else:
+                df_new.to_excel(EXCEL_FILE, index=False)
+                
             st.success("✅ Məlumatlar uğurla qeydə alındı!")
             st.balloons()
