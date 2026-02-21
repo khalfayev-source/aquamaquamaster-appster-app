@@ -12,92 +12,92 @@ IMAGE_FOLDER = "magaza_sekilleri"
 if not os.path.exists(IMAGE_FOLDER):
     os.makedirs(IMAGE_FOLDER)
 
-# --- JAVASCRIPT KOORDİNAT SİSTEMİ ---
+# --- JAVASCRIPT GEOLOKASİYA ---
 def get_location_js():
     js_code = """
-    <div style="background-color: #f0f2f6; padding: 20px; border-radius: 10px; border: 2px solid #4285F4; text-align: center; font-family: sans-serif;">
-        <button id="getLocBtn" onclick="getLocation()" style="width: 100%; padding: 15px; background-color: #4285F4; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 16px;">
+    <div style="background-color: #f9f9f9; padding: 15px; border-radius: 10px; border: 1px dashed #4285F4; text-align: center;">
+        <button id="geoBtn" onclick="getLocation()" style="padding: 12px 24px; background-color: #4285F4; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 16px;">
             📍 MƏKANI TƏYİN ET
         </button>
-        <p id="out" style="margin-top: 10px; font-size: 14px; color: #333; font-weight: bold;">Məkan gözlənilir...</p>
+        <p id="status" style="margin-top: 10px; font-size: 14px; font-family: sans-serif; color: #555;">Məkan hələ təyin edilməyib</p>
     </div>
 
     <script>
     function getLocation() {
-      const output = document.getElementById('out');
+      const status = document.getElementById('status');
       if (navigator.geolocation) {
-        output.innerText = "Axtarılır...";
-        navigator.geolocation.getCurrentPosition(showPosition, showError, {enableHighAccuracy: true});
+        status.innerText = "Koordinatlar alınır...";
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const lat = position.coords.latitude;
+            const lng = position.coords.longitude;
+            status.innerText = "Tapıldı: " + lat.toFixed(6) + ", " + lng.toFixed(6);
+            
+            // Streamlit-ə JSON formatında göndəririk
+            window.parent.postMessage({
+              type: 'streamlit:set_component_value',
+              value: {lat: lat, lng: lng}
+            }, '*');
+          },
+          (error) => {
+            status.innerText = "Xəta: " + error.message;
+          },
+          { enableHighAccuracy: true }
+        );
       } else { 
-        output.innerText = "Brauzer dəstəkləmir.";
+        status.innerText = "Brauzer dəstəkləmir.";
       }
-    }
-
-    function showPosition(position) {
-      const lat = position.coords.latitude;
-      const lng = position.coords.longitude;
-      document.getElementById('out').innerText = "✅ Tapıldı və Köçürüldü!";
-      
-      // Streamlit-ə datanı JSON kimi göndərmək
-      window.parent.postMessage({
-        type: 'streamlit:set_component_value',
-        value: lat + "|" + lng
-      }, '*');
-    }
-
-    function showError(error) {
-      document.getElementById('out').innerText = "Xəta: " + error.message;
     }
     </script>
     """
-    return components.html(js_code, height=160)
+    return components.html(js_code, height=130)
 
-# --- APP ---
-st.set_page_config(page_title="Aquamaster", page_icon="💧")
+# --- APP BAŞLIĞI ---
+st.set_page_config(page_title="Aquamaster Cənub", page_icon="💧")
 st.title("💧 Aquamaster")
 
 # 1. Məkan Düyməsi
-coords_raw = get_location_js()
+loc_data = get_location_js()
 
-# Koordinatları sessiya yaddaşında saxlayaq
-if 'lat' not in st.session_state: st.session_state.lat = ""
-if 'lng' not in st.session_state: st.session_state.lng = ""
+lat_val = ""
+lng_val = ""
 
-if coords_raw and "|" in coords_raw:
-    l_lat, l_lng = coords_raw.split("|")
-    st.session_state.lat = l_lat
-    st.session_state.lng = l_lng
+if loc_data and isinstance(loc_data, dict):
+    lat_val = loc_data.get('lat', "")
+    lng_val = loc_data.get('lng', "")
 
-# 2. GİRİŞ XANALARI
-st.markdown("### 🏪 Mağaza Məlumatları")
-magaza_adi = st.text_input("Mağaza Adı *")
-rayon = st.selectbox("Rayon", ["Lənkəran", "Masallı", "Astara", "Lerik", "Yardımlı", "Cəlilabad", "Biləsuvar", "Salyan", "Digər"])
-magaza_tipi = st.selectbox("Mağaza Tipi", ["Banyo", "Banyo və Xırdavat", "Xırdavat"])
-
+# 2. Giriş Xanaları (Formdan kənarda olduqda daha yaxşı işləyir)
+st.markdown("---")
 col1, col2 = st.columns(2)
 with col1:
-    sahibkar = st.text_input("Sahibkarın Adı")
-    satici_var = st.radio("Satıcısı varmı?", ["Var", "Yox"], horizontal=True)
-with col2:
-    telefon = st.text_input("Əlaqə Nömrəsi")
-    hecm = st.selectbox("Həcm (AZN/Mal)", [500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 5000, 10000, 20000])
+    magaza_adi = st.text_input("🏪 Mağaza Adı *")
+    sahibkar = st.text_input("👤 Sahibkarın Adı")
+    magaza_tipi = st.selectbox("🏗️ Mağaza Tipi", ["Banyo", "Banyo və Xırdavat", "Xırdavat"])
 
-st.markdown("---")
+with col2:
+    rayon = st.selectbox("📍 Rayon", ["Lənkəran", "Masallı", "Astara", "Lerik", "Yardımlı", "Cəlilabad", "Biləsuvar", "Salyan", "Digər"])
+    telefon = st.text_input("📞 Əlaqə Nömrəsi")
+    satici_var = st.radio("Satıcısı varmı?", ["Var", "Yox"], horizontal=True)
+
+hecm_listi = [500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 5000, 10000, 20000]
+hecm = st.selectbox("📦 Həcm (AZN/Mal)", hecm_listi)
+
+# Koordinatlar - JS-dən gələn dəyərlər bura birbaşa yazılacaq
 st.write("📍 **Koordinatlar**")
 col_lat, col_lng = st.columns(2)
-# Session state-dən gələn dəyərlər bura düşür
-final_lat = col_lat.text_input("Enlik (Lat)", value=st.session_state.lat)
-final_lng = col_lng.text_input("Uzunluq (Lng)", value=st.session_state.lng)
+with col_lat:
+    final_lat = st.text_input("Enlik (Lat)", value=str(lat_val))
+with col_lng:
+    final_lng = st.text_input("Uzunluq (Lng)", value=str(lng_val))
 
 uploaded_photo = st.camera_input("📸 Mağaza Şəkli")
 qeyd = st.text_area("📝 Qeydlər")
 
-# 3. YADDA SAXLA
+# Yadda Saxla Düyməsi
 if st.button("💾 YADDA SAXLA", use_container_width=True):
-    if not magaza_adi or not final_lat:
-        st.error("⚠️ Mağaza Adı və Koordinatlar mütləqdir!")
+    if not magaza_adi:
+        st.error("⚠️ Mağaza Adı mütləqdir!")
     else:
-        # DATA YADDA SAXLA
         photo_path = "Şəkil Yoxdur"
         if uploaded_photo is not None:
             img = Image.open(uploaded_photo)
@@ -115,16 +115,21 @@ if st.button("💾 YADDA SAXLA", use_container_width=True):
             "Şəkil": [photo_path], "Qeyd": [qeyd]
         }
         df_new = pd.DataFrame(new_row)
+        
         if os.path.exists(EXCEL_FILE):
             df_old = pd.read_excel(EXCEL_FILE)
-            pd.concat([df_old, df_new], ignore_index=True).to_excel(EXCEL_FILE, index=False)
+            df_final = pd.concat([df_old, df_new], ignore_index=True)
         else:
-            df_new.to_excel(EXCEL_FILE, index=False)
-        
-        st.success("✅ Məlumatlar uğurla qeydə alındı!")
+            df_final = df_new
+            
+        df_final.to_excel(EXCEL_FILE, index=False)
+        st.success("✅ Məlumatlar yadda saxlanıldı!")
         st.balloons()
 
-# 4. ARXİV
-with st.expander("📊 Arxivə bax"):
+# 3. Arxiv Bölməsi
+st.markdown("---")
+if st.checkbox("📊 Arxivə bax"):
     if os.path.exists(EXCEL_FILE):
         st.dataframe(pd.read_excel(EXCEL_FILE))
+        with open(EXCEL_FILE, "rb") as f:
+            st.download_button("📥 Excel-i Yüklə", f, file_name="aquamaster_baza.xlsx")
