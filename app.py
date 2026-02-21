@@ -3,6 +3,7 @@ import pandas as pd
 import os
 from datetime import datetime
 from PIL import Image
+import streamlit.components.v1 as components
 
 # --- TƏNZİMLƏMƏLƏR ---
 EXCEL_FILE = "aquamaster_data.xlsx"
@@ -11,7 +12,36 @@ IMAGE_FOLDER = "magaza_sekilleri"
 if not os.path.exists(IMAGE_FOLDER):
     os.makedirs(IMAGE_FOLDER)
 
-def save_data(store_name, district, store_type, owner, phone, has_seller, volume, map_link, photo_file, note):
+# --- GOOGLE MAPS-DƏKİ KİMİ JS GEOLOKASİYA ---
+def get_location_js():
+    js_code = """
+    <script>
+    function getLocation() {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(showPosition, showError);
+      } else { 
+        window.parent.postMessage({type: 'streamlit:set_component_value', value: 'Geolokasiya dəstəklənmir'}, '*');
+      }
+    }
+
+    function showPosition(position) {
+      const coords = position.coords.latitude + "," + position.coords.longitude;
+      window.parent.postMessage({type: 'streamlit:set_component_value', value: coords}, '*');
+    }
+
+    function showError(error) {
+      window.parent.postMessage({type: 'streamlit:set_component_value', value: 'Xəta: ' + error.message}, '*');
+    }
+    
+    // Səhifə yüklənən kimi işə düşsün
+    getLocation();
+    </script>
+    <button onclick="getLocation()" style="padding: 10px 20px; background-color: #008CBA; color: white; border: none; border-radius: 5px; cursor: pointer;">📍 Koordinatı Yenilə</button>
+    """
+    return components.html(js_code, height=60)
+
+# --- DATA YADDA SAXLA ---
+def save_data(store_name, district, store_type, owner, phone, has_seller, volume, coords, photo_file, note):
     photo_path = "Şəkil Yoxdur"
     if photo_file is not None:
         img = Image.open(photo_file)
@@ -31,7 +61,7 @@ def save_data(store_name, district, store_type, owner, phone, has_seller, volume
         "Telefon": [phone],
         "Satıcı Var?": [has_seller],
         "Həcm": [volume],
-        "Google Maps Linki": [map_link],
+        "Koordinatlar": [coords],
         "Şəkil Yolu": [photo_path],
         "Qeyd": [note]
     }
@@ -44,16 +74,13 @@ def save_data(store_name, district, store_type, owner, phone, has_seller, volume
     df_final.to_excel(EXCEL_FILE, index=False)
     return True
 
+# --- APP DİZAYN ---
 st.set_page_config(page_title="Aquamaster Cənub", page_icon="💧")
 st.title("💧 Aquamaster")
 
-# --- GEOLOKASİYA TƏLİMATI (Formadan kənarda) ---
 st.subheader("🌍 Məkan Təyini")
-st.info("Olduğunuz yeri Maps-də tapın, 'Paylaş' düyməsi ilə linki kopyalayıb aşağıdakı xanaya yapışdırın.")
-
-# Google Maps düyməsi (Formadan kənarda olduğu üçün xəta verməyəcək)
-maps_url = "https://www.google.com/maps"
-st.markdown(f'<a href="{maps_url}" target="_blank" style="text-decoration: none; padding: 12px 25px; background-color: #4285F4; color: white; border-radius: 8px; font-weight: bold; display: inline-block; margin-bottom: 20px;">📍 Google Maps-i Aç</a>', unsafe_allow_html=True)
+# JS vasitəsilə məkənı alırıq
+coords_from_js = get_location_js()
 
 # --- ƏSAS FORMA ---
 with st.form("main_form", clear_on_submit=True):
@@ -78,31 +105,18 @@ with st.form("main_form", clear_on_submit=True):
         hecm_listi = [500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 5000, 6000, 7000, 8000, 9000, 10000, 15000, 20000]
         hecm = st.selectbox("📦 Həcm (AZN/Mal)", hecm_listi)
 
-    # Google Maps Link girişi
-    map_link = st.text_input("🔗 Google Maps Linkini bura yapışdırın", placeholder="https://maps.app.goo.gl/...")
+    st.write("📍 **Koordinatlar**")
+    # Brauzerdən gələn datanı bura yazırıq
+    final_coords = st.text_input("Enlik və Uzunluq (Avtomatik dolur)", value=coords_from_js if coords_from_js else "")
 
-    # Kamera
-    uploaded_photo = st.camera_input("📸 Mağaza Şəkli Çək")
-    
-    # Qeyd
+    uploaded_photo = st.camera_input("📸 Şəkil çək")
     qeyd = st.text_area("📝 Xüsusi Qeyd")
 
-    # Submit düyməsi (İndi mütləq görünəcək)
     submitted = st.form_submit_button("💾 YADDA SAXLA")
-    
     if submitted:
         if not magaza_adi:
             st.error("⚠️ Mağaza Adı mütləqdir!")
-        elif not map_link:
-            st.warning("⚠️ Zəhmət olmasa məkan linkini əlavə edin.")
         else:
-            save_data(magaza_adi, rayon, magaza_tipi, sahibkar, telefon, satici_var, hecm, map_link, uploaded_photo, qeyd)
+            save_data(magaza_adi, rayon, magaza_tipi, sahibkar, telefon, satici_var, hecm, final_coords, uploaded_photo, qeyd)
             st.success("✅ Məlumatlar uğurla qeydə alındı!")
             st.balloons()
-
-# Arxiv
-st.markdown("---")
-with st.expander("📊 Arxivə Bax (Cari Sessiya)"):
-    if os.path.exists(EXCEL_FILE):
-        df_view = pd.read_excel(EXCEL_FILE)
-        st.dataframe(df_view)
