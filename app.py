@@ -41,6 +41,29 @@ SCOPES = [
 
 
 # =========================
+# DEBUG (TEMP)
+# =========================
+def debug_secrets_private_key():
+    st.markdown("### 🧪 DEBUG (Secrets private_key)")
+    if "gcp_service_account" not in st.secrets:
+        st.error("DEBUG: st.secrets içində [gcp_service_account] tapılmadı.")
+        return
+
+    info = dict(st.secrets["gcp_service_account"])
+    pk = info.get("private_key", "")
+
+    st.write("DEBUG private_key length:", len(pk))
+    st.write("DEBUG contains BEGIN:", "BEGIN PRIVATE KEY" in pk)
+    st.write("DEBUG contains END:", "END PRIVATE KEY" in pk)
+    st.write("DEBUG contains literal \\\\n:", "\\n" in pk)
+    st.write("DEBUG newline count:", pk.count("\n"))
+    st.write("DEBUG head:", pk[:30].replace("\n", "\\n"))
+    st.write("DEBUG tail:", pk[-30:].replace("\n", "\\n"))
+
+    st.caption("Qeyd: Bu debug private key-i göstərmir, sadəcə format yoxlayır.")
+
+
+# =========================
 # GOOGLE AUTH (SECRETS ONLY)
 # =========================
 def _load_sa_info_from_secrets() -> dict:
@@ -49,7 +72,6 @@ def _load_sa_info_from_secrets() -> dict:
 
     info = dict(st.secrets["gcp_service_account"])
 
-    # Multiline '''...''' istifadə edəndə burada artıq real newline olur.
     # Əgər kimsə tək-sətir formatı istifadə edibsə, \\n ola bilər — o halda düzəldirik.
     pk = info.get("private_key", "")
     if "\\n" in pk:
@@ -98,7 +120,7 @@ def upload_image_to_drive(drive, image_bytes: bytes, filename: str) -> str:
 
     file_id = created["id"]
 
-    # istəsən bunu bağlaya bilərik; hazırda linklə baxış açıqdır
+    # Linklə baxış açıq olsun
     drive.permissions().create(
         fileId=file_id,
         body={"type": "anyone", "role": "reader"}
@@ -112,6 +134,9 @@ def upload_image_to_drive(drive, image_bytes: bytes, filename: str) -> str:
 # =========================
 st.set_page_config(page_title="Aquamaster Cənub (Prod)", page_icon="💧")
 st.title("💧 Aquamaster Cənub (Prod)")
+
+# DEBUG BLOKU BURADA İŞLƏYİR
+debug_secrets_private_key()
 
 # ---- Auth check ----
 try:
@@ -227,7 +252,6 @@ if st.button("💾 YADDA SAXLA", use_container_width=True):
         st.error(f"Sheets-ə yazılmadı: {e}")
         st.stop()
 
-
 # ---- ARCHIVE ----
 st.markdown("---")
 if st.checkbox("📊 Arxivə bax (Sheets-dən)"):
@@ -238,7 +262,6 @@ if st.checkbox("📊 Arxivə bax (Sheets-dən)"):
             st.info("Hələ data yoxdur.")
         else:
             df = pd.DataFrame(values[1:], columns=values[0])
-            # Səliqəli sırala
             for c in CANON_COLS:
                 if c not in df.columns:
                     df[c] = ""
