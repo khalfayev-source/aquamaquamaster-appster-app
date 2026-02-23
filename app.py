@@ -1,22 +1,19 @@
 import io
 from datetime import datetime
 
-import streamlit as st
 import pandas as pd
+import streamlit as st
+from streamlit_js_eval import get_geolocation
 
 import gspread
 from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
-
-from streamlit_js_eval import get_geolocation
+from google.cloud import storage
 
 
 # =========================
 # CONFIG
 # =========================
 SHEET_ID = "1PO8vl6lVCio9lHgFrZFQ9Sgz6XRbVOWYyh8FMZzaM9E"
-DRIVE_FOLDER_ID = "1SgXAWg6xxyq4L_UmFiaQeo8yE5bCZVXu"
 WORKSHEET_NAME = "Data"
 
 CANON_COLS = [
@@ -59,7 +56,6 @@ def debug_secrets_private_key():
     st.write("DEBUG newline count:", pk.count("\n"))
     st.write("DEBUG head:", pk[:30].replace("\n", "\\n"))
     st.write("DEBUG tail:", pk[-30:].replace("\n", "\\n"))
-
     st.caption("Qeyd: Bu debug private key-i göstərmir, sadəcə format yoxlayır.")
 
 
@@ -72,7 +68,7 @@ def _load_sa_info_from_secrets() -> dict:
 
     info = dict(st.secrets["gcp_service_account"])
 
-    # Əgər kimsə tək-sətir formatı istifadə edibsə, \\n ola bilər — o halda düzəldirik.
+    # Əgər hardasa \\n qalıbsa düzəldirik
     pk = info.get("private_key", "")
     if "\\n" in pk:
         info["private_key"] = pk.replace("\\n", "\n")
@@ -84,9 +80,12 @@ def _load_sa_info_from_secrets() -> dict:
 def get_clients():
     info = _load_sa_info_from_secrets()
     creds = service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
+
     gc = gspread.authorize(creds)
-    drive = build("drive", "v3", credentials=creds)
-    return gc, drive, info.get("client_email", "unknown")
+    gcs_client = storage.Client.from_service_account_info(info)
+
+    sa_email = info.get("client_email", "unknown")
+    return gc, gcs_client, sa_email
 
 
 def ensure_worksheet(gc):
@@ -108,25 +107,15 @@ def append_row(ws, row_dict: dict):
     ws.append_row(row, value_input_option="USER_ENTERED")
 
 
-def upload_image_to_drive(drive, image_bytes: bytes, filename: str) -> str:
-    media = MediaIoBaseUpload(io.BytesIO(image_bytes), mimetype="image/jpeg", resumable=False)
-    file_metadata = {"name": filename, "parents": [DRIVE_FOLDER_ID]}
-
-    created = drive.files().create(
-        body=file_metadata,
-        media_body=media,
-        fields="id"
-    ).execute()
-
-    file_id = created["id"]
-
-    # Linklə baxış açıq olsun
-    drive.permissions().create(
-        fileId=file_id,
-        body={"type": "anyone", "role": "reader"}
-    ).execute()
-
-    return f"https://drive.google.com/file/d/{file_id}/view"
+def upload_image_to_gcs(gcs_client: storage.Client, bucket_name: str, image_bytes: bytes, filename: str) -> str:
+    """
+    Upload -> returns a https link.
+    Bucket public deyil, amma link Sheets-də saxlanacaq (icazəli istifadəçilər açacaq).
+    """
+    bucket = gcs_client.bucket(bucket_name)
+    blob = bucket.blob(filename)
+    blob.upload_from_file(io.BytesIO(image_bytes), content_type="image/jpeg")
+    return f"https://storage.googleapis.com/{bucket_name}/{filename}"
 
 
 # =========================
@@ -135,16 +124,22 @@ def upload_image_to_drive(drive, image_bytes: bytes, filename: str) -> str:
 st.set_page_config(page_title="Aquamaster Cənub (Prod)", page_icon="💧")
 st.title("💧 Aquamaster Cənub (Prod)")
 
-# DEBUG BLOKU BURADA İŞLƏYİR
 debug_secrets_private_key()
 
 # ---- Auth check ----
 try:
-    gc, drive, sa_email = get_clients()
+    gc, gcs_client, sa_email = get_clients()
     st.caption(f"Google auth: OK ✅ ({sa_email})")
 except Exception as e:
     st.error(f"Google auth xətası: {e}")
     st.stop()
+
+# ---- Bucket check ----
+if "gcs" not in st.secrets or "bucket" not in st.secrets["gcs"]:
+    st.error('GCS bucket tapılmadı. Secrets-ə əlavə et: [gcs] bucket="..."')
+    st.stop()
+
+GCS_BUCKET = st.secrets["gcs"]["bucket"]
 
 # ---- session init ----
 st.session_state.setdefault("lat_input", "")
@@ -203,7 +198,8 @@ with c_lat:
 with c_lng:
     st.text_input("Uzunluq (Lng)", key="lng_input")
 
-uploaded_photo = st.camera_input("📸 Mağaza Şəkli (telefon arxa kameraya əl ilə keçə bilər)")
+# Qeyd: Streamlit camera_input-da default olaraq arxa kameranı zorla seçmək mümkün olmur.
+uploaded_photo = st.camera_input("📸 Mağaza Şəkli")
 qeyd = st.text_area("📝 Qeydlər")
 
 # ---- SAVE ----
@@ -212,24 +208,30 @@ if st.button("💾 YADDA SAXLA", use_container_width=True):
         st.error("⚠️ Mağaza Adı mütləqdir!")
         st.stop()
 
+    # 1) Sheet
     try:
         ws = ensure_worksheet(gc)
     except Exception as e:
         st.error(f"Sheet açılmadı: {e}")
         st.stop()
 
+    # 2) Image -> GCS
     photo_link = ""
+    photo_ok = False
     if uploaded_photo is not None:
         try:
             img_bytes = uploaded_photo.getvalue()
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             safe_name = "".join([c if c.isalnum() or c in "_-" else "_" for c in magaza_adi.strip()])
-            filename = f"{ts}_{safe_name}.jpg"
-            photo_link = upload_image_to_drive(drive, img_bytes, filename)
+            filename = f"aquamaster/{ts}_{safe_name}.jpg"
+            photo_link = upload_image_to_gcs(gcs_client, GCS_BUCKET, img_bytes, filename)
+            photo_ok = True
         except Exception as e:
-            st.warning(f"Şəkil Drive-a yüklənmədi: {e}")
+            st.warning(f"Şəkil yüklənmədi: {e}")
             photo_link = ""
+            photo_ok = False
 
+    # 3) Row (səliqəli ardıcıllıq)
     row = {
         "Tarix": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "Mağaza": magaza_adi.strip(),
@@ -245,9 +247,17 @@ if st.button("💾 YADDA SAXLA", use_container_width=True):
         "Qeyd": qeyd.strip(),
     }
 
+    # 4) Append
     try:
         append_row(ws, row)
-        st.success("✅ Məlumatlar Sheets-ə yazıldı, şəkil Drive-a yükləndi!")
+        if uploaded_photo is None:
+            st.success("✅ Məlumatlar Sheets-ə yazıldı! (Şəkil seçilmədi)")
+        else:
+            if photo_ok:
+                st.success("✅ Məlumatlar Sheets-ə yazıldı, şəkil yükləndi!")
+                st.caption(photo_link)
+            else:
+                st.success("✅ Məlumatlar Sheets-ə yazıldı! (Şəkil yüklənmədi)")
     except Exception as e:
         st.error(f"Sheets-ə yazılmadı: {e}")
         st.stop()
