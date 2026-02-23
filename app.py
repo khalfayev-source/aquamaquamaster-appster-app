@@ -11,6 +11,7 @@ from googleapiclient.http import MediaIoBaseUpload
 
 from streamlit_js_eval import get_geolocation
 
+
 # =========================
 # CONFIG
 # =========================
@@ -38,35 +39,52 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive",
 ]
 
+
 # =========================
-# GOOGLE CLIENTS (Secrets)
+# GOOGLE AUTH (SECRETS ONLY)
 # =========================
-@st.cache_resource
-def get_clients():
+def _load_sa_info_from_secrets() -> dict:
+    if "gcp_service_account" not in st.secrets:
+        raise RuntimeError("Streamlit Secrets-də [gcp_service_account] tapılmadı.")
+
     info = dict(st.secrets["gcp_service_account"])
 
-    # Secrets-də private_key bəzən \\n kimi olur -> \n edirik
-    if "\\n" in info.get("private_key", ""):
-        info["private_key"] = info["private_key"].replace("\\n", "\n")
+    # Multiline '''...''' istifadə edəndə burada artıq real newline olur.
+    # Əgər kimsə tək-sətir formatı istifadə edibsə, \\n ola bilər — o halda düzəldirik.
+    pk = info.get("private_key", "")
+    if "\\n" in pk:
+        info["private_key"] = pk.replace("\\n", "\n")
 
+    return info
+
+
+@st.cache_resource
+def get_clients():
+    info = _load_sa_info_from_secrets()
     creds = service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
     gc = gspread.authorize(creds)
     drive = build("drive", "v3", credentials=creds)
-    return gc, drive
+    return gc, drive, info.get("client_email", "unknown")
+
 
 def ensure_worksheet(gc):
     sh = gc.open_by_key(SHEET_ID)
     try:
         ws = sh.worksheet(WORKSHEET_NAME)
     except gspread.WorksheetNotFound:
-        ws = sh.add_worksheet(title=WORKSHEET_NAME, rows=1000, cols=len(CANON_COLS))
+        ws = sh.add_worksheet(title=WORKSHEET_NAME, rows=2000, cols=len(CANON_COLS))
 
-    # Header yoxdursa / fərqlidirsə düzəlt
-    current = ws.row_values(1)
-    if current != CANON_COLS:
+    header = ws.row_values(1)
+    if header != CANON_COLS:
         ws.update("A1", [CANON_COLS])
 
     return ws
+
+
+def append_row(ws, row_dict: dict):
+    row = [row_dict.get(c, "") for c in CANON_COLS]
+    ws.append_row(row, value_input_option="USER_ENTERED")
+
 
 def upload_image_to_drive(drive, image_bytes: bytes, filename: str) -> str:
     media = MediaIoBaseUpload(io.BytesIO(image_bytes), mimetype="image/jpeg", resumable=False)
@@ -80,17 +98,13 @@ def upload_image_to_drive(drive, image_bytes: bytes, filename: str) -> str:
 
     file_id = created["id"]
 
-    # Link ilə baxış açıq olsun (istəsən sonra bağlayarıq)
+    # istəsən bunu bağlaya bilərik; hazırda linklə baxış açıqdır
     drive.permissions().create(
         fileId=file_id,
         body={"type": "anyone", "role": "reader"}
     ).execute()
 
     return f"https://drive.google.com/file/d/{file_id}/view"
-
-def append_row(ws, row_dict: dict):
-    row = [row_dict.get(c, "") for c in CANON_COLS]
-    ws.append_row(row, value_input_option="USER_ENTERED")
 
 
 # =========================
@@ -99,9 +113,10 @@ def append_row(ws, row_dict: dict):
 st.set_page_config(page_title="Aquamaster Cənub (Prod)", page_icon="💧")
 st.title("💧 Aquamaster Cənub (Prod)")
 
-# ---- AUTH QUICK CHECK (istəsən gizlədə bilərsən) ----
+# ---- Auth check ----
 try:
-    gc, drive = get_clients()
+    gc, drive, sa_email = get_clients()
+    st.caption(f"Google auth: OK ✅ ({sa_email})")
 except Exception as e:
     st.error(f"Google auth xətası: {e}")
     st.stop()
@@ -120,18 +135,16 @@ if geo_click or st.session_state.get("geo_pending", False):
     st.session_state["geo_pending"] = True
     loc = get_geolocation()
 
-# loc parse -> widget state doldur
 if isinstance(loc, dict):
     coords = loc.get("coords") or {}
     lat = coords.get("latitude", loc.get("latitude"))
     lng = coords.get("longitude", loc.get("longitude"))
-
     if lat is not None and lng is not None:
         st.session_state["lat_input"] = f"{float(lat):.6f}"
         st.session_state["lng_input"] = f"{float(lng):.6f}"
         st.session_state["geo_pending"] = False
 
-if st.session_state.get("lat_input") and st.session_state.get("lng_input"):
+if st.session_state["lat_input"] and st.session_state["lng_input"]:
     st.success(f"Tapıldı: {st.session_state['lat_input']}, {st.session_state['lng_input']}")
 elif st.session_state.get("geo_pending", False):
     st.info("Lokasiya icazəsi gözlənilir... (Brauzerdə Allow seç)")
@@ -165,8 +178,7 @@ with c_lat:
 with c_lng:
     st.text_input("Uzunluq (Lng)", key="lng_input")
 
-# Kamera: Streamlit-də default rear məcburi deyil (brauzer idarə edir)
-uploaded_photo = st.camera_input("📸 Mağaza Şəkli (arxa kamera üçün “flip” et)")
+uploaded_photo = st.camera_input("📸 Mağaza Şəkli (telefon arxa kameraya əl ilə keçə bilər)")
 qeyd = st.text_area("📝 Qeydlər")
 
 # ---- SAVE ----
@@ -175,14 +187,12 @@ if st.button("💾 YADDA SAXLA", use_container_width=True):
         st.error("⚠️ Mağaza Adı mütləqdir!")
         st.stop()
 
-    # Worksheet hazırla
     try:
         ws = ensure_worksheet(gc)
     except Exception as e:
-        st.error(f"Sheet tapılmadı / açıla bilmədi: {e}")
+        st.error(f"Sheet açılmadı: {e}")
         st.stop()
 
-    # şəkil upload
     photo_link = ""
     if uploaded_photo is not None:
         try:
@@ -195,7 +205,6 @@ if st.button("💾 YADDA SAXLA", use_container_width=True):
             st.warning(f"Şəkil Drive-a yüklənmədi: {e}")
             photo_link = ""
 
-    # Row (sabit sxem)
     row = {
         "Tarix": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "Mağaza": magaza_adi.strip(),
@@ -211,7 +220,6 @@ if st.button("💾 YADDA SAXLA", use_container_width=True):
         "Qeyd": qeyd.strip(),
     }
 
-    # Sheets-ə yaz
     try:
         append_row(ws, row)
         st.success("✅ Məlumatlar Sheets-ə yazıldı, şəkil Drive-a yükləndi!")
@@ -219,7 +227,8 @@ if st.button("💾 YADDA SAXLA", use_container_width=True):
         st.error(f"Sheets-ə yazılmadı: {e}")
         st.stop()
 
-# ---- ARXİV ----
+
+# ---- ARCHIVE ----
 st.markdown("---")
 if st.checkbox("📊 Arxivə bax (Sheets-dən)"):
     try:
@@ -229,7 +238,7 @@ if st.checkbox("📊 Arxivə bax (Sheets-dən)"):
             st.info("Hələ data yoxdur.")
         else:
             df = pd.DataFrame(values[1:], columns=values[0])
-            # Kolon ardıcıllığına sal
+            # Səliqəli sırala
             for c in CANON_COLS:
                 if c not in df.columns:
                     df[c] = ""
